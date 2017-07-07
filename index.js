@@ -1,20 +1,19 @@
 var fs = require('fs');
 
-
 /**
  * 根据语言获取字体
  *
  * @param  {Array}  langPkg 根据语言获取字体
- * @param  {string} zh      中文内容
+ * @param  {string} zh_cn   中文内容
  * @param  {string} lang    要转的语言
  * @param  {string} pkgPath 语言包文件的路径
  * @return {string}         查询出来的语言文字
  */
-var getTextByLang = function (langPkg, zh, lang, pkgPath) {
+var getTextByLang = function (langPkg, zh_cn, lang, pkgPath) {
     var text;
 
     langPkg.forEach(function (item) {
-        if (zh == item.zh) {
+        if (zh_cn == item.zh_cn) {
             text = item[lang];
         }
     });
@@ -22,7 +21,7 @@ var getTextByLang = function (langPkg, zh, lang, pkgPath) {
     if (text) {
         return text;
     }
-    console.log('can not find "' + zh + '" in ' + pkgPath);
+    console.log('can not find "' + zh_cn + '" in ' + pkgPath);
 
     return '';
 };
@@ -36,6 +35,7 @@ var getTextByLang = function (langPkg, zh, lang, pkgPath) {
  * @return {string}         处理后的内容
  */
 var handleJsAndCss = function (content, lang) {
+
     return content.replace(
         /\/\*\*\s*start\s*:\s*(\S*?)\s*\*\*\/([\s\S]*?)\/\*\*\s*end\s*:\s*(\1)\s*\*\*\//g,
         function (match, start, section, end) {
@@ -66,44 +66,92 @@ var handleHtml = function (content, lang) {
     );
 };
 
+/**
+ * 处理deploy
+ *
+ * @param  {Object} obj    值
+ * @param  {Object} parent 原始对象
+ * @param  {string} key    key
+ * @param  {Object} opt    配置
+ */
+var handleVariable = function (obj, parent, key, opt) {
 
-module.exports = function (content, file, settings) {
-    var lang =  settings.lang;
-    var filePath = file.origin.replace(
-        /(.*)(template|page|component_modules|components)(\/[^/]*\/)(.*)/g,
-        function (match, project, dir, feature) {
-            return project + dir + feature;
+    if (Object.prototype.toString.call(obj) == '[object Object]') {
+        for (var key in obj) {
+            handleVariable(obj[key], obj, key, opt);
         }
-    ) + 'lang.json';
-
-    var langPkg = [];
-    if (fs.existsSync(filePath)) {
-        langPkg = require(filePath);
     }
-
-
-    // 类html
-    if (/\.(html|tpl|tmpl)$/g.test(file.origin)) {
-        content = handleHtml(content, lang)
+    else if (Object.prototype.toString.call(obj) == '[object Array]') {
+        obj.forEach(function (item, index) {
+            handleVariable(obj[index], obj, index, opt);
+        });
     }
-    // js和css
-    else if (/\.(js|css|less|sass|styl)$/g.test(file.origin)) {
-        content = handleJs(content, lang);
+    else {
+        parent[key] = (parent[key] + '').replace(/\$\{\s*(.*?)\s*\}/g, function (match, variable) {
+            return opt[variable] || '';
+        });
     }
+};
 
-    langPkg
-    .sort(function (a, b) {
-        return a.zh.length - b.zh.length;
-    })
-    .forEach(function (item) {
-        content = content.replace(
-            new RegExp('__i18n(' + item.zh.replace(/\+/g, '\\\+') + ')', 'ig'),
-            function (macth) {
-                return item[lang];
+
+module.exports = function (ret, conf, settings, opt) {
+    handleVariable(fis.config.get('deploy'), null, null, opt);
+    var lang =  opt.lang;
+
+    fis.util.map(ret.src, function(subpath, file) {
+
+        if (!file.isHtmlLike && !file.isJsLike && !file.isCssLike) {
+            return;
+        }
+
+        var filePath = file.origin.replace(
+            /(.*)(template|page|component_modules|components)(\/[^/]*\/)(.*)/g,
+            function (match, project, dir, feature) {
+                return project + dir + feature;
             }
-        );
+        ) + 'lang.json';
+
+        var content = file.getContent();
+
+        var langPkg = [];
+        if (fs.existsSync(filePath)) {
+            langPkg = require(filePath);
+        }
+
+        // 类html
+        if (/\.(html|tpl|tmpl)$/g.test(file.origin)) {
+            content = handleHtml(content, lang)
+        }
+        // js和css
+        else if (/\.(js|css|less|sass|styl)$/g.test(file.origin)) {
+            content = handleJsAndCss(content, lang);
+        }
+
+        langPkg
+        .sort(function (a, b) {
+            return a.zh_cn.length - b.zh_cn.length;
+        })
+        .forEach(function (item) {
+            content = content.replace(
+                new RegExp(''
+                    + '__i18n\\\('
+                    + item.zh_cn
+                        .replace(/\+/g, '\\\+')
+                        .replace(/\+/g, '\\\+')
+                        .replace(/\?/g, '\\\?')
+                        .replace(/\./g, '\\\.')
+                        .replace(/\*/g, '\\\*')
+                        .replace(/\{/g, '\\\{')
+                        .replace(/\}/g, '\\\}')
+                        .replace(/\)/g, '\\\)')
+                        .replace(/\(/g, '\\\(')
+                    + '\\\)', 'ig'),
+                function (macth) {
+                    return item[lang];
+                }
+            );
+        });
+
+        file.setContent(content);
     });
-
-
-    return content;
 };
