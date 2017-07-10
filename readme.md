@@ -10,9 +10,9 @@ lang.json
 
 [
 	{
-		zh: '中文',
-		en: 'english',
-		pt: 'português'
+		zh_cn: '中文简体',
+		zh_tw: '中文繁體',
+        en_us: 'english',
 	},
 	...
 ]
